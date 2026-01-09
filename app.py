@@ -215,8 +215,10 @@ three_js_html = """
             function createGuitar() {
                 const group = new THREE.Group();
                 const shape = new THREE.Shape(); shape.moveTo(0,-1.5); shape.bezierCurveTo(1.5,-1.5,1.5,1.5,0,1.5); shape.bezierCurveTo(-0.5,1.5,-0.5,0.5,0,0); shape.bezierCurveTo(-1.2,0.5,-1.5,-1.5,0,-1.5);
-                const body = new THREE.Mesh(new THREE.ExtrudeGeometry(shape, {depth:0.3, bevelEnabled:true, bevelThickness:0.05}), new THREE.MeshStandardMaterial({color:0xaa0000, metalness:0.6}));
-                body.center(); group.add(body);
+                const bodyGeo = new THREE.ExtrudeGeometry(shape, {depth:0.3, bevelEnabled:true, bevelThickness:0.05});
+                bodyGeo.center();
+                const body = new THREE.Mesh(bodyGeo, new THREE.MeshStandardMaterial({color:0xaa0000, metalness:0.6}));
+                group.add(body);
                 const neck = new THREE.Mesh(new THREE.BoxGeometry(0.4, 3.5, 0.15), new THREE.MeshStandardMaterial({color:0xd2b48c}));
                 neck.position.set(0, 2, 0.1); group.add(neck);
                 for(let i=0; i<4; i++){ let s = new THREE.Mesh(new THREE.CylinderGeometry(0.01,0.01,3.5), neonMat); s.position.set(-0.15+i*0.1, 2, 0.25); s.userData={note:"E3"}; group.add(s); }
