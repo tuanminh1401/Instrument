@@ -15,32 +15,50 @@ st.markdown("""
 <style>
     /* Dark Background & Neon Accents */
     .stApp {
-        background-color: #0E1117;
+        background-color: #050505; /* Deep Black */
         color: #ffffff;
     }
     h1, h2, h3 {
         font-family: 'Inter', sans-serif;
         color: #00FFA3 !important; /* Neon Green */
-        text-shadow: 0px 0px 10px rgba(0, 255, 163, 0.4);
+        text-shadow: 0px 0px 15px rgba(0, 255, 163, 0.6);
     }
     /* Hide Streamlit Header/Footer for immersion */
     header {visibility: hidden;}
     footer {visibility: hidden;}
     
-    /* Custom container styling */
     .block-container {
-        padding-top: 2rem;
-        padding-bottom: 2rem;
+        padding-top: 0rem;
+        padding-bottom: 0rem;
+        max-width: 100%;
+    }
+    
+    /* Overlay UI for the "Pro" feel */
+    .ui-overlay {
+        position: fixed;
+        top: 20px;
+        left: 20px;
+        z-index: 100;
+        pointer-events: none;
+    }
+    
+    .status-badge {
+        background: rgba(0, 255, 163, 0.1);
+        border: 1px solid #00FFA3;
+        color: #00FFA3;
+        padding: 5px 10px;
+        border-radius: 4px;
+        font-family: monospace;
+        font-size: 12px;
+        backdrop-filter: blur(5px);
     }
 </style>
 """, unsafe_allow_html=True)
 
-st.title("🎹 3D Virtual Instrument Simulator")
-st.markdown("### Interactive Tone.js Audio Engine & Three.js Visualization")
+# st.title("🎹 3D Virtual Instrument Simulator") 
+# Commented out title to let the 3D scene take over full screen
 
 # --- 2. Three.js + Tone.js HTML Injection ---
-# This is where the magic happens. We inject a full 3D app into Streamlit.
-
 three_js_html = """
 <!DOCTYPE html>
 <html lang="en">
@@ -52,7 +70,7 @@ three_js_html = """
         body { 
             margin: 0; 
             overflow: hidden; 
-            background-color: #0E1117;
+            background-color: #050505;
             font-family: 'Segoe UI', sans-serif;
             color: white;
             user-select: none;
@@ -61,22 +79,36 @@ three_js_html = """
             width: 100%; 
             height: 100vh; 
             display: block; 
+            background: radial-gradient(circle at center, #1a1a1a 0%, #000000 100%);
         }
         #overlay {
             position: absolute;
-            bottom: 20px;
-            left: 20px;
+            bottom: 30px;
+            left: 30px;
             pointer-events: none;
+            text-align: left;
+        }
+        .title {
+            font-size: 40px;
+            font-weight: 800;
+            color: white;
+            text-shadow: 0 0 20px rgba(255,255,255,0.2);
+            margin: 0;
+            letter-spacing: -1px;
+        }
+        .subtitle {
+            font-size: 14px;
+            color: #00FFA3;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            margin-bottom: 10px;
+            text-shadow: 0 0 10px rgba(0,255,163,0.5);
         }
         .instruction {
-            color: #00FFA3;
-            font-size: 14px;
-            text-transform: uppercase;
-            letter-spacing: 1px;
-            background: rgba(0,0,0,0.5);
-            padding: 8px 12px;
-            border-radius: 4px;
-            border: 1px solid #00FFA3;
+            color: #888;
+            font-size: 12px;
+            margin-top: 10px;
+            font-family: monospace;
         }
         #loading {
             position: absolute;
@@ -84,376 +116,489 @@ three_js_html = """
             left: 50%;
             transform: translate(-50%, -50%);
             color: #00FFA3;
-            font-size: 24px;
+            font-size: 18px;
             text-transform: uppercase;
-            letter-spacing: 2px;
+            letter-spacing: 4px;
+            animation: pulse 2s infinite;
+        }
+        @keyframes pulse {
+            0% { opacity: 0.5; }
+            50% { opacity: 1; }
+            100% { opacity: 0.5; }
         }
     </style>
-    <!-- CDN Imports -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    
+    <!-- ES Module Import Map for Modern Three.js -->
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+                "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/",
+                "tone": "https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"
+            }
+        }
+    </script>
+    <!-- Tone.js is UMD, so load it normally -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tween.js/18.6.4/tween.umd.js"></script>
 </head>
 <body>
-    <div id="loading">Initializing Audio & Graphics...</div>
+    <div id="loading">System Initializing...</div>
     <div id="canvas-container"></div>
     <div id="overlay">
-        <div class="instruction">Click / Tap to Play Note<br>Drag to Rotate<br>Double Click to Switch Focus</div>
+        <div class="subtitle">Virtual Studio</div>
+        <div class="title" id="inst-name">Grand Piano</div>
+        <div class="instruction">
+            [CLICK] PLAY NOTE &nbsp;•&nbsp; [DRAG] ROTATE &nbsp;•&nbsp; [DOUBLE-CLICK] SWITCH FOCUS
+        </div>
     </div>
 
-    <script>
-    // --- APP STATE ---
-    const instruments = [
-        { type: 'piano', name: 'Grand Piano', color: 0x111111 },
-        { type: 'guitar', name: 'Electric Guitar', color: 0xaa2222 },
-        { type: 'sax', name: 'Tenor Saxophone', color: 0xD4AF37 }
-    ];
-    let activeIndex = 0;
-    
-    // --- THREE.JS SETUP ---
-    const container = document.getElementById('canvas-container');
-    const loading = document.getElementById('loading');
-    
-    const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x0E1117);
-    scene.fog = new THREE.Fog(0x0E1117, 10, 50);
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+        import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+        import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+        import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 
-    const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 100);
-    camera.position.set(0, 5, 12);
-    camera.lookAt(0, 0, 0);
+        // --- STATE ---
+        const instruments = [
+            { type: 'piano', name: 'Grand Piano' },
+            { type: 'guitar', name: 'Cyber Guitar' },
+            { type: 'sax', name: 'Neon Sax' }
+        ];
+        let activeIndex = 0;
+        const instNameEl = document.getElementById('inst-name');
 
-    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-    renderer.setSize(window.innerWidth, window.innerHeight);
-    renderer.setPixelRatio(window.devicePixelRatio);
-    renderer.toneMapping = THREE.ReinhardToneMapping;
-    container.appendChild(renderer.domElement);
+        // --- SETUP ---
+        const container = document.getElementById('canvas-container');
+        const loading = document.getElementById('loading');
 
-    const controls = new THREE.OrbitControls(camera, renderer.domElement);
-    controls.enableDamping = true;
-    controls.dampingFactor = 0.05;
-    controls.minDistance = 5;
-    controls.maxDistance = 20;
+        const scene = new THREE.Scene();
+        // Background fog for infinite feel
+        scene.fog = new THREE.FogExp2(0x050505, 0.02);
 
-    // --- LIGHTING ---
-    const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
-    scene.add(ambientLight);
+        const camera = new THREE.PerspectiveCamera(40, window.innerWidth / window.innerHeight, 0.1, 100);
+        camera.position.set(0, 4, 14);
 
-    const spotLight = new THREE.SpotLight(0x00FFA3, 1.5);
-    spotLight.position.set(10, 20, 10);
-    spotLight.angle = 0.3;
-    spotLight.penumbra = 0.5;
-    spotLight.castShadow = true;
-    scene.add(spotLight);
+        const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(window.devicePixelRatio);
+        renderer.toneMapping = THREE.ACESFilmicToneMapping;
+        renderer.toneMappingExposure = 1.0;
+        renderer.shadowMap.enabled = true;
+        renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        container.appendChild(renderer.domElement);
 
-    const pointLight = new THREE.PointLight(0xff00ff, 0.8); // Cyberpunk contrasting light
-    pointLight.position.set(-10, 5, -5);
-    scene.add(pointLight);
-
-    // --- GEOMETRY GENERATORS ---
-    // Materials
-    const standardMaterial = new THREE.MeshStandardMaterial({ 
-        color: 0x333333, 
-        metalness: 0.9, 
-        roughness: 0.2 
-    });
-    
-    const accentMaterial = new THREE.MeshStandardMaterial({ 
-        color: 0x00FFA3, 
-        emissive: 0x004422,
-        metalness: 0.5, 
-        roughness: 0.2 
-    });
-
-    const whiteKeyMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.1 });
-    const blackKeyMat = new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.1 });
-
-    function createPiano() {
-        const group = new THREE.Group();
+        // --- POST PROCESSING (BLOOM) ---
+        const renderScene = new RenderPass(scene, camera);
         
-        // Body
-        const bodyGeo = new THREE.BoxGeometry(4, 1.5, 4);
-        const body = new THREE.Mesh(bodyGeo, new THREE.MeshStandardMaterial({ color: 0x050505, roughness: 0.1, metalness: 0.8 }));
-        body.position.y = 0;
-        group.add(body);
+        const bloomPass = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 1.5, 0.4, 0.85);
+        bloomPass.threshold = 0;
+        bloomPass.strength = 1.2; // High neon glow
+        bloomPass.radius = 0.5;
+
+        const composer = new EffectComposer(renderer);
+        composer.addPass(renderScene);
+        composer.addPass(bloomPass);
+
+        // --- CONTROLS ---
+        const controls = new OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true;
+        controls.dampingFactor = 0.05;
+        controls.minDistance = 5;
+        controls.maxDistance = 20;
+        controls.maxPolarAngle = Math.PI / 2 + 0.1; // Don't allow going too far below
+
+        // --- LIGHTING ---
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.05); // Very dim ambient
+        scene.add(ambientLight);
+
+        // Main Spotlight (Key Light)
+        const spotLight = new THREE.SpotLight(0xffffff, 100);
+        spotLight.position.set(5, 10, 5);
+        spotLight.angle = 0.5;
+        spotLight.penumbra = 0.5;
+        spotLight.castShadow = true;
+        spotLight.shadow.bias = -0.0001;
+        scene.add(spotLight);
+
+        // Rim Light (Cyan/Blue)
+        const rimLight = new THREE.SpotLight(0x00ffff, 50);
+        rimLight.position.set(-5, 5, -5);
+        rimLight.lookAt(0,0,0);
+        scene.add(rimLight);
+
+        // Fill Light (Neon Pink/Magenta)
+        const fillLight = new THREE.PointLight(0xff0080, 2, 20);
+        fillLight.position.set(-5, 2, 5);
+        scene.add(fillLight);
         
-        // Keys
-        const startX = -1.8;
-        for(let i=0; i<8; i++) {
-            const keyGeo = new THREE.BoxGeometry(0.4, 0.2, 1.5);
-            const key = new THREE.Mesh(keyGeo, whiteKeyMat);
-            key.position.set(startX + i*0.5, 0.8, 1.0);
-            key.userData = { note: ["C4", "D4", "E4", "F4", "G4", "A4", "B4", "C5"][i] };
-            group.add(key);
+        // Floor Reflection (Grid)
+        const gridHelper = new THREE.GridHelper(50, 50, 0x333333, 0x111111);
+        gridHelper.position.y = -2;
+        scene.add(gridHelper);
+
+        // Particles
+        const particlesGeo = new THREE.BufferGeometry();
+        const particlesCount = 200;
+        const posArray = new Float32Array(particlesCount * 3);
+        const particleColors = new Float32Array(particlesCount * 3);
+        
+        for(let i=0; i<particlesCount * 3; i+=3) {
+            posArray[i] = (Math.random() - 0.5) * 30;
+            posArray[i+1] = (Math.random() - 0.5) * 20 + 5;
+            posArray[i+2] = (Math.random() - 0.5) * 30;
             
-            // Black keys (simplified)
-            if ([0,1,3,4,5].includes(i)) {
-                 const bKeyGeo = new THREE.BoxGeometry(0.25, 0.25, 1);
-                 const bKey = new THREE.Mesh(bKeyGeo, blackKeyMat);
-                 bKey.position.set(startX + i*0.5 + 0.25, 0.95, 0.8);
-                 bKey.userData = { note: ["C#4", "D#4", "", "F#4", "G#4", "A#4"][i] || "C#4" }; // Just fallback
-                 group.add(bKey);
+            // Random colors between Cyan and Green
+            particleColors[i] = 0;
+            particleColors[i+1] = 0.5 + Math.random() * 0.5; 
+            particleColors[i+2] = 0.5 + Math.random() * 0.5;
+        }
+        particlesGeo.setAttribute('position', new THREE.BufferAttribute(posArray, 3));
+        particlesGeo.setAttribute('color', new THREE.BufferAttribute(particleColors, 3));
+        const particlesMat = new THREE.PointsMaterial({
+            size: 0.1,
+            vertexColors: true,
+            transparent: true,
+            opacity: 0.8,
+            blending: THREE.AdditiveBlending
+        });
+        const particlesMesh = new THREE.Points(particlesGeo, particlesMat);
+        scene.add(particlesMesh);
+
+        // --- MATERIALS ---
+        const plasticMat = new THREE.MeshPhysicalMaterial({ 
+            color: 0x111111, roughness: 0.1, metalness: 0.1, clearcoat: 1.0, clearcoatRoughness: 0.1 
+        });
+        const metalMat = new THREE.MeshStandardMaterial({ 
+            color: 0x888888, roughness: 0.2, metalness: 1.0 
+        });
+        const goldMat = new THREE.MeshStandardMaterial({ 
+            color: 0xffcc00, roughness: 0.3, metalness: 1.0 
+        });
+        const neonMat = new THREE.MeshStandardMaterial({
+            color: 0x000000, emissive: 0x00FFA3, emissiveIntensity: 2
+        });
+        const woodMat = new THREE.MeshStandardMaterial({
+            color: 0x5c4033, roughness: 0.8, metalness: 0.0
+        });
+
+        // --- INSTRUMENT GENERATORS (Advanced) ---
+
+        function createPiano() {
+            const group = new THREE.Group();
+            
+            // Main Body (Grand Piano Curve)
+            const shape = new THREE.Shape();
+            shape.moveTo(0,0);
+            shape.lineTo(4,0);
+            shape.quadraticCurveTo(4, 4, 2, 6);
+            shape.lineTo(0, 6);
+            shape.lineTo(0, 0);
+            
+            const extrudeSettings = { depth: 1, bevelEnabled: true, bevelSegments: 2, steps: 2, bevelSize: 0.1, bevelThickness: 0.1 };
+            const bodyGeo = new THREE.ExtrudeGeometry(shape, extrudeSettings);
+            const body = new THREE.Mesh(bodyGeo, plasticMat);
+            body.rotation.x = -Math.PI / 2;
+            body.position.set(-2, 0, -3);
+            group.add(body);
+            
+            // Legs
+            const legGeo = new THREE.CylinderGeometry(0.1, 0.05, 2);
+            [
+                new THREE.Vector3(-1.5, -1, 2),
+                new THREE.Vector3(1.5, -1, 2),
+                new THREE.Vector3(0, -1, -2)
+            ].forEach(pos => {
+                const leg = new THREE.Mesh(legGeo, plasticMat);
+                leg.position.copy(pos);
+                group.add(leg);
+            });
+
+            // Keys Area
+            const keyBedGeo = new THREE.BoxGeometry(4.2, 0.5, 1.5);
+            const keyBed = new THREE.Mesh(keyBedGeo, plasticMat);
+            keyBed.position.set(0, 0.5, 2.2);
+            group.add(keyBed);
+            
+            // Keys
+            const startX = -1.8;
+            for(let i=0; i<8; i++) {
+                // White Key
+                const keyGeo = new THREE.BoxGeometry(0.4, 0.2, 1.2);
+                const key = new THREE.Mesh(keyGeo, new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.1 }));
+                key.position.set(startX + i*0.5, 0.8, 2.4);
+                key.userData = { note: ["C4", "D4", "E4", "F4", "G4", "A4", "B4", "C5"][i] };
+                key.castShadow = true;
+                group.add(key);
+                
+                // Black Key
+                if ([0,1,3,4,5].includes(i)) {
+                    const bKeyGeo = new THREE.BoxGeometry(0.25, 0.25, 0.8);
+                    const bKey = new THREE.Mesh(bKeyGeo, new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.1 }));
+                    bKey.position.set(startX + i*0.5 + 0.25, 0.95, 2.2);
+                    bKey.userData = { note: ["C#4", "D#4", "", "F#4", "G#4", "A#4"][i] || "C#4" }; 
+                    group.add(bKey);
+                }
+            }
+            return group;
+        }
+
+        function createGuitar() {
+            const group = new THREE.Group();
+            
+            // Strat-like Body
+            const shape = new THREE.Shape();
+            // Simplified contour
+            shape.moveTo(0, -1.5);
+            shape.bezierCurveTo(1.5, -1.5, 1.5, 1.5, 0, 1.5);
+            shape.bezierCurveTo(-0.5, 1.5, -0.5, 0.5, 0, 0); // Waist
+            shape.bezierCurveTo(-1.2, 0.5, -1.5, -1.5, 0, -1.5);
+            
+            const bodyGeo = new THREE.ExtrudeGeometry(shape, { depth: 0.3, bevelEnabled: true, bevelThickness: 0.05, bevelSize: 0.05 });
+            const body = new THREE.Mesh(bodyGeo, new THREE.MeshStandardMaterial({ color: 0xaa0000, metalness: 0.6, roughness: 0.1, clearcoat: 1.0 }));
+            body.center(); // Center geometry
+            group.add(body);
+            
+            // Pickguard
+            const pgShape = new THREE.Shape();
+            pgShape.moveTo(0.2, -1);
+            pgShape.lineTo(0.8, -0.5);
+            pgShape.lineTo(0.8, 0.5);
+            pgShape.lineTo(0.2, 0.8);
+            const pgGeo = new THREE.ExtrudeGeometry(pgShape, { depth: 0.32, bevelEnabled: false });
+            const pg = new THREE.Mesh(pgGeo, new THREE.MeshStandardMaterial({ color: 0xffffff }));
+            pg.position.z = -0.16; // Slight offset
+            group.add(pg);
+
+            // Neck
+            const neckGeo = new THREE.BoxGeometry(0.4, 3.5, 0.15);
+            const neck = new THREE.Mesh(neckGeo, new THREE.MeshStandardMaterial({ color: 0xd2b48c }));
+            neck.position.set(0, 2, 0.1);
+            group.add(neck);
+
+            // Fretboard
+            const fbGeo = new THREE.BoxGeometry(0.4, 3.5, 0.05);
+            const fb = new THREE.Mesh(fbGeo, new THREE.MeshStandardMaterial({ color: 0x332211 }));
+            fb.position.set(0, 2, 0.2);
+            group.add(fb);
+
+            // Strings (Emissive for Neon look)
+            const stringGeo = new THREE.CylinderGeometry(0.01, 0.01, 3.5);
+            for(let i=0; i<6; i++) {
+                const string = new THREE.Mesh(stringGeo, neonMat);
+                string.position.set(-0.15 + i*0.06, 2, 0.25);
+                string.userData = { note: ["E2", "A2", "D3", "G3", "B3", "E4"][i] };
+                group.add(string);
+            }
+
+            return group;
+        }
+
+        function createSax() {
+            const group = new THREE.Group();
+            
+            // Complex Tube using TubeGeometry with more segments
+            const path = new THREE.CatmullRomCurve3([
+                new THREE.Vector3(0, -1.5, 0),
+                new THREE.Vector3(0, 1.5, 0),
+                new THREE.Vector3(0.5, 2.0, 0),
+                new THREE.Vector3(1.0, 1.5, 0),
+                new THREE.Vector3(0.8, 2.2, 0.2) // Neck
+            ]);
+            
+            const tubeGeo = new THREE.TubeGeometry(path, 64, 0.25, 16, false);
+            const tube = new THREE.Mesh(tubeGeo, goldMat);
+            group.add(tube);
+            
+            // Bell
+            const bellGeo = new THREE.LatheGeometry([
+                new THREE.Vector2(0.25, 0),
+                new THREE.Vector2(0.4, 0.2),
+                new THREE.Vector2(0.8, 0.8),
+                new THREE.Vector2(1.0, 1.0)
+            ], 32);
+            const bell = new THREE.Mesh(bellGeo, goldMat);
+            bell.position.set(0, -1.5, 0);
+            bell.rotation.x = Math.PI;
+            bell.userData = { note: "C4" };
+            group.add(bell);
+
+            // Keys/Buttons along the body
+            for(let i=0; i<8; i++) {
+                const btnGeo = new THREE.CylinderGeometry(0.08, 0.08, 0.1);
+                const btn = new THREE.Mesh(btnGeo, new THREE.MeshStandardMaterial({ color: 0xeeeeee, metalness: 0.5 }));
+                btn.position.set(0, -1 + i*0.4, 0.25);
+                btn.rotation.x = Math.PI / 2;
+                btn.userData = { note: ["D4", "E4", "F4", "G4", "A4", "B4", "C5", "D5"][i] };
+                group.add(btn);
+            }
+            
+            return group;
+        }
+
+        // --- CAROUSEL ---
+        const instrumentMeshes = [];
+        
+        const pMesh = createPiano(); 
+        pMesh.userData = { type: 'piano' };
+        scene.add(pMesh);
+        instrumentMeshes.push(pMesh);
+
+        const gMesh = createGuitar();
+        gMesh.userData = { type: 'guitar' };
+        scene.add(gMesh);
+        instrumentMeshes.push(gMesh);
+
+        const sMesh = createSax();
+        sMesh.userData = { type: 'sax' };
+        scene.add(sMesh);
+        instrumentMeshes.push(sMesh);
+
+        function updateCarousel() {
+            instrumentMeshes.forEach((mesh, index) => {
+                const relIndex = (index - activeIndex + instrumentMeshes.length) % instrumentMeshes.length;
+                
+                if (relIndex === 0) {
+                    // Active
+                    new TWEEN.Tween(mesh.position).to({ x:0, y:0, z:0 }, 800).easing(TWEEN.Easing.Back.Out).start();
+                    new TWEEN.Tween(mesh.scale).to({ x:1, y:1, z:1 }, 800).easing(TWEEN.Easing.Elastic.Out).start();
+                    new TWEEN.Tween(mesh.rotation).to({ x:0, y:0, z:0 }, 800).start();
+                    
+                    // Update Text
+                    if(instNameEl) instNameEl.innerText = instruments[index].name;
+                    
+                } else if (relIndex === 1) {
+                    // Right Top
+                    new TWEEN.Tween(mesh.position).to({ x:6, y:3, z:-4 }, 800).easing(TWEEN.Easing.Cubic.Out).start();
+                    new TWEEN.Tween(mesh.scale).to({ x:0.5, y:0.5, z:0.5 }, 800).easing(TWEEN.Easing.Cubic.Out).start();
+                    new TWEEN.Tween(mesh.rotation).to({ x:0.2, y:-0.5, z:0.2 }, 800).start();
+                } else if (relIndex === 2) {
+                    // Right Bottom
+                    new TWEEN.Tween(mesh.position).to({ x:6, y:-3, z:-4 }, 800).easing(TWEEN.Easing.Cubic.Out).start();
+                    new TWEEN.Tween(mesh.scale).to({ x:0.5, y:0.5, z:0.5 }, 800).easing(TWEEN.Easing.Cubic.Out).start();
+                    new TWEEN.Tween(mesh.rotation).to({ x: -0.2, y:-0.5, z: -0.2 }, 800).start();
+                }
+            });
+        }
+        updateCarousel(); // Init
+
+        // --- AUDIO ENGINE ---
+        const vol = new Tone.Volume(-8).toDestination();
+        const reverb = new Tone.Reverb(2).toDestination();
+        vol.connect(reverb);
+        
+        const pianoSynth = new Tone.Sampler({
+            urls: { C4: "C4.mp3", D#4: "Ds4.mp3", F#4: "Fs4.mp3", A4: "A4.mp3" },
+            baseUrl: "https://tonejs.github.io/audio/salamander/"
+        }).connect(vol);
+        // Fallback if sampler loads slow is hidden, but let's add a synth backup if needed.
+        // Actually Sampler is best for realism. We will rely on online connection.
+        
+        const guitarSynth = new Tone.PluckSynth({
+            attackNoise: 2, dampening: 4000, resonance: 0.98
+        }).connect(vol);
+        
+        const saxSynth = new Tone.MonoSynth({
+            oscillator: { type: "sawtooth" },
+            envelope: { attack: 0.05, decay: 0.2, sustain: 0.8, release: 1.5 },
+            filterEnvelope: { attack: 0.1, decay: 0.5, sustain: 0.3, baseFrequency: 300, octaves: 4 }
+        }).connect(vol);
+
+        async function startAudio() {
+            if (Tone.context.state !== 'running') {
+                await Tone.start();
+                loading.style.display = 'none';
             }
         }
-        return group;
-    }
 
-    function createGuitar() {
-        const group = new THREE.Group();
-        
-        // Body
-        const bodyGeo = new THREE.CylinderGeometry(1.2, 1.5, 0.5, 32);
-        const body = new THREE.Mesh(bodyGeo, new THREE.MeshStandardMaterial({ color: 0xaa0000, metalness: 0.6 }));
-        body.rotation.x = Math.PI / 2;
-        group.add(body);
-        
-        // Neck
-        const neckGeo = new THREE.BoxGeometry(0.4, 4, 0.2);
-        const neck = new THREE.Mesh(neckGeo, new THREE.MeshStandardMaterial({ color: 0x5c4033 }));
-        neck.position.y = 2.2;
-        group.add(neck);
-
-        // Strings (Abstract)
-        const stringGeo = new THREE.CylinderGeometry(0.02, 0.02, 4);
-        for(let i=0; i<4; i++) {
-            const string = new THREE.Mesh(stringGeo, new THREE.MeshBasicMaterial({ color: 0xc0c0c0 }));
-            string.position.set(-0.15 + i*0.1, 2.2, 0.15);
-            string.userData = { note: ["E3", "A3", "D4", "G4"][i] };
-            group.add(string);
+        function playNote(type, note) {
+            switch(type) {
+                case 'piano': pianoSynth.triggerAttackRelease(note, "2n"); break;
+                case 'guitar': guitarSynth.triggerAttack(note); break;
+                case 'sax': saxSynth.triggerAttackRelease(note, "4n"); break;
+            }
         }
 
-        return group;
-    }
+        // --- INTERACTION ---
+        const raycaster = new THREE.Raycaster();
+        const mouse = new THREE.Vector2();
 
-    function createSax() {
-        const group = new THREE.Group();
-        
-        // Main Tube
-        const tubePath = new THREE.CatmullRomCurve3([
-            new THREE.Vector3(0, -1, 0),
-            new THREE.Vector3(0, 0, 0),
-            new THREE.Vector3(0, 2, 0),
-            new THREE.Vector3(0.5, 2.5, 0),
-            new THREE.Vector3(1, 2, 0)
-        ]);
-        const tubeGeo = new THREE.TubeGeometry(tubePath, 20, 0.3, 8, false);
-        const tube = new THREE.Mesh(tubeGeo, new THREE.MeshStandardMaterial({ color: 0xD4AF37, metalness: 1.0, roughness: 0.1 }));
-        group.add(tube);
-        
-        // Bell
-        const bellGeo = new THREE.ConeGeometry(0.8, 1, 32, 1, true);
-        const bell = new THREE.Mesh(bellGeo, new THREE.MeshStandardMaterial({ color: 0xD4AF37, metalness: 1.0, roughness: 0.1, side: THREE.DoubleSide }));
-        bell.position.set(0, -1, 0);
-        bell.rotation.x = Math.PI;
-        bell.userData = { note: "C4" }; // Clicking bell plays base note
-        group.add(bell);
-
-        // Buttons
-        for(let i=0; i<5; i++) {
-            const btnGeo = new THREE.CylinderGeometry(0.1, 0.1, 0.1);
-            const btn = new THREE.Mesh(btnGeo, new THREE.MeshStandardMaterial({color: 0xffffff}));
-            btn.position.set(0.2, i*0.4, 0.25);
-            btn.rotation.z = Math.PI / 2;
-            btn.userData = { note: ["D4", "E4", "F4", "G4", "A4"][i] };
-            group.add(btn);
-        }
-
-        return group;
-    }
-
-    // --- CAROUSEL LOGIC ---
-    const instrumentMeshes = [];
-    const radius = 6;
-    
-    // Create instances
-    const pMesh = createPiano();
-    pMesh.userData = { type: 'piano' };
-    scene.add(pMesh);
-    instrumentMeshes.push(pMesh);
-
-    const gMesh = createGuitar();
-    gMesh.userData = { type: 'guitar' };
-    scene.add(gMesh);
-    instrumentMeshes.push(gMesh);
-
-    const sMesh = createSax();
-    sMesh.userData = { type: 'sax' };
-    scene.add(sMesh);
-    instrumentMeshes.push(sMesh);
-
-    // Initial positioning
-    function updateCarousel() {
-        // Active instrument at (0,0,0), scale 1
-        // Next 1: (3, 0, -3), scale 0.5
-        // Next 2: (4, -2, -4), scale 0.5 (Just a simple right stack layout as requested)
-        
-        // Let's implement the specific logic: Center Stage + Right Stack
-        // Because strictly MAX 3 instruments.
-        
-        instrumentMeshes.forEach((mesh, index) => {
-            // Calculate relative index based on activeIndex
-            // 0 = Active, 1 = Next, 2 = Last
-            // We want indices to wrap around: (index - active + len) % len
-            const relIndex = (index - activeIndex + instrumentMeshes.length) % instrumentMeshes.length;
+        window.addEventListener('click', (event) => {
+            startAudio();
+            mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+            mouse.y = - (event.clientY / window.innerHeight) * 2 + 1;
             
-            if (relIndex === 0) {
-                // Center Stage
-                new TWEEN.Tween(mesh.position).to({ x:0, y:0, z:0 }, 500).easing(TWEEN.Easing.Quadratic.Out).start();
-                new TWEEN.Tween(mesh.scale).to({ x:1, y:1, z:1 }, 500).easing(TWEEN.Easing.Quadratic.Out).start();
-                new TWEEN.Tween(mesh.rotation).to({ x:0, y: (mesh.userData.type === 'guitar' ? 0 : 0), z:0 }, 500).start();
-            } else if (relIndex === 1) {
-                // Right Stack Top
-                new TWEEN.Tween(mesh.position).to({ x:5, y:2, z:-2 }, 500).easing(TWEEN.Easing.Quadratic.Out).start();
-                new TWEEN.Tween(mesh.scale).to({ x:0.4, y:0.4, z:0.4 }, 500).easing(TWEEN.Easing.Quadratic.Out).start();
-                new TWEEN.Tween(mesh.rotation).to({ y: -0.5 }, 500).start();
-            } else if (relIndex === 2) {
-                // Right Stack Bottom
-                new TWEEN.Tween(mesh.position).to({ x:5, y:-2, z:-2 }, 500).easing(TWEEN.Easing.Quadratic.Out).start();
-                new TWEEN.Tween(mesh.scale).to({ x:0.4, y:0.4, z:0.4 }, 500).easing(TWEEN.Easing.Quadratic.Out).start();
-                new TWEEN.Tween(mesh.rotation).to({ y: -0.5 }, 500).start();
+            raycaster.setFromCamera(mouse, camera);
+            const intersects = raycaster.intersectObjects(scene.children, true);
+            
+            if(intersects.length > 0) {
+                let obj = intersects[0].object;
+                
+                // Logic to find parent group
+                let group = obj;
+                while(group.parent && group.parent.type !== 'Scene') {
+                    group = group.parent;
+                }
+                const hitIndex = instrumentMeshes.indexOf(group);
+                
+                // Note Play
+                if(obj.userData.note && hitIndex === activeIndex) {
+                    playNote(instruments[activeIndex].type, obj.userData.note);
+                    
+                    // Glow effect on hit
+                    const oldEmissive = obj.material.emissive ? obj.material.emissive.getHex() : 0x000000;
+                    if(obj.material.emissive) {
+                        obj.material.emissive.setHex(0x00FFA3);
+                        setTimeout(() => obj.material.emissive.setHex(oldEmissive), 200);
+                    }
+                }
             }
         });
-    }
 
-    // --- AUDIO ENGINE (Tone.js) ---
-    const vol = new Tone.Volume(-10).toDestination();
-    
-    // Synths
-    const pianoSynth = new Tone.PolySynth(Tone.Synth, {
-        oscillator: { type: "triangle" },
-        envelope: { attack: 0.02, decay: 0.1, sustain: 0.3, release: 1 }
-    }).connect(vol);
+        window.addEventListener('dblclick', (event) => {
+             // Simple cycle on double click anywhere
+             activeIndex = (activeIndex + 1) % instruments.length;
+             updateCarousel();
+        });
 
-    const guitarSynth = new Tone.PluckSynth({
-        attackNoise: 1,
-        dampening: 4000,
-        resonance: 0.7
-    }).connect(vol);
-
-    const saxSynth = new Tone.MonoSynth({
-        oscillator: { type: "sawtooth" },
-        envelope: { attack: 0.1, decay: 0.2, sustain: 0.5, release: 0.8 },
-        filterEnvelope: { attack: 0.06, decay: 0.2, sustain: 0.5, baseFrequency: 200, octaves: 2.6 }
-    }).connect(vol);
-    
-    // Simple reverb
-    const reverb = new Tone.Reverb(1.5).toDestination();
-    pianoSynth.connect(reverb);
-    guitarSynth.connect(reverb);
-    saxSynth.connect(reverb);
-
-    async function startAudio() {
-        await Tone.start();
-        loading.style.display = 'none';
-        console.log("Audio Context Started");
-    }
-
-    function playNote(instrumentType, note) {
-        if (!note) return;
+        // --- LOOP ---
+        const clock = new THREE.Clock();
         
-        switch(instrumentType) {
-            case 'piano':
-                pianoSynth.triggerAttackRelease(note, "8n");
-                break;
-            case 'guitar':
-                guitarSynth.triggerAttack(note);
-                break;
-            case 'sax':
-                saxSynth.triggerAttackRelease(note, "4n");
-                break;
-        }
-    }
-
-    // --- INTERACTION ---
-    const raycaster = new THREE.Raycaster();
-    const mouse = new THREE.Vector2();
-
-    function onMouseClick(event) {
-        // Calculate mouse position in normalized device coordinates
-        mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
-        mouse.y = - (event.clientY / window.innerHeight) * 2 + 1;
-
-        raycaster.setFromCamera(mouse, camera);
-
-        // Intersect with active instrument only to avoid confusion? 
-        // Or all? Let's do all visible.
-        const intersects = raycaster.intersectObjects(scene.children, true);
-
-        if (intersects.length > 0) {
-            startAudio(); // Ensure context is running
-
-            // Check if we hit a carousel item that is NOT active (to switch)
-            // Traverse up to find the group root
-            let object = intersects[0].object;
-            let group = object;
-            while(group.parent && group.parent.type !== 'Scene') {
-                group = group.parent;
-            }
+        function animate() {
+            requestAnimationFrame(animate);
+            const time = clock.getElapsedTime();
+            TWEEN.update();
+            controls.update();
             
-            // Identify which instrument group this is
-            const hitIndex = instrumentMeshes.indexOf(group);
-            
-            if (hitIndex !== -1 && hitIndex !== activeIndex) {
-                 // Switch Focus
-                 activeIndex = hitIndex;
-                 updateCarousel();
-                 return;
-            }
+            // Floating Animation for Carousel
+            instrumentMeshes.forEach((mesh, idx) => {
+                 if(idx === activeIndex) {
+                     mesh.position.y = Math.sin(time) * 0.1; 
+                 } else {
+                     mesh.rotation.x += 0.005; // Gentle spin for background items
+                 }
+            });
 
-            // If we hit the active instrument parts, play note
-            if (object.userData.note) {
-                 playNote(instrumentMeshes[activeIndex].userData.type, object.userData.note);
-                 
-                 // Visual feedback
-                 const originalColor = object.material.color.getHex();
-                 object.material.color.setHex(0x00FFA3);
-                 setTimeout(() => {
-                     object.material.color.setHex(originalColor);
-                 }, 150);
-            }
+            // Particles Animation
+            particlesMesh.rotation.y = time * 0.05;
+
+            composer.render();
         }
-    }
 
-    window.addEventListener('click', onMouseClick, false);
-    
-    // --- ANIMATION LOOP ---
-    // Simple Tweening Polyfill since we didn't import TWEEN.js separately
-    // Actually, let's just use CSS-like logic or a simple lerp for now to save imports?
-    // Wait, the prompt implies "Smooth 3D/CSS transitions". 
-    // I'll import TWEEN via CDN for robustness.
-    
-    const script = document.createElement('script');
-    script.src = "https://cdnjs.cloudflare.com/ajax/libs/tween.js/18.6.4/tween.umd.js";
-    script.onload = () => {
-        updateCarousel(); // Initial Layout
         animate();
-    };
-    document.head.appendChild(script);
+        loading.innerText = "READY. CLICK TO START.";
 
-    function animate(time) {
-        requestAnimationFrame(animate);
-        TWEEN.update(time);
-        
-        // Idle animation for active instrument
-        if (instrumentMeshes[activeIndex]) {
-            instrumentMeshes[activeIndex].rotation.y = Math.sin(time * 0.001) * 0.1; 
-        }
-
-        controls.update();
-        renderer.render(scene, camera);
-    }
-
-    // Handle Resize
-    window.addEventListener('resize', () => {
-        camera.aspect = window.innerWidth / window.innerHeight;
-        camera.updateProjectionMatrix();
-        renderer.setSize(window.innerWidth, window.innerHeight);
-    });
-
-    loading.innerText = "Click anywhere to Start";
-    
+        // Resize
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            composer.setSize(window.innerWidth, window.innerHeight);
+        });
     </script>
 </body>
 </html>
 """
 
-components.html(three_js_html, height=800, scrolling=False)
+components.html(three_js_html, height=850, scrolling=False)
